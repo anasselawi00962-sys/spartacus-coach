@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Spartacus Community",
+    "slug": "spartacus-community",
+    "scheme": "spartacuscommunity",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.spartacusprotein.community"
+    },
+    "extra": {
+      "website": "https://spartacusprotein.com"
+    }
+  }
+}

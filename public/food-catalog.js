@@ -11,8 +11,8 @@ const fmt=v=>Number(v).toFixed(1);
 const safe=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const keyFor=f=>'global_'+String(f.id).replace(/[^a-zA-Z0-9]/g,'_');
 function addTableRow(entry){
- if(!window.mealPlan || !window.CoachNutrition)return false;
- const m=window.mealPlan.meals[entry.meal];
+ if(!mealPlan || !window.CoachNutrition)return false;
+ const m=mealPlan.meals[entry.meal];
  if(!m)return false;
  const f=entry.food;
  const key=keyFor(f);
@@ -57,7 +57,7 @@ function addTableRow(entry){
 }
 function mount(){
  const output=el('mealOutput');
- if(!output||!window.mealPlan?.meals)return;
+ if(!output||!mealPlan?.meals)return;
  const panel=document.createElement('section');
  panel.id='globalFoodPanel';
  panel.className='card';
@@ -75,7 +75,7 @@ function mount(){
  '<button id="globalFoodAdd" type="button">إضافة إلى جدول اليوم</button></div>'+
  '<p class="muted">البيانات من مساهمات عامة أو قواعد مرجعية: تحقق من الملصق، حالة الطعام مطبوخ أو نيّئ، والكمية. الإضافات الحالية محفوظة داخل هذه الجلسة فقط.</p>';
  output.appendChild(panel);
- const meals=el('globalFoodMeal');window.mealPlan.meals.forEach((m,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=m.name;meals.append(o)});
+ const meals=el('globalFoodMeal');mealPlan.meals.forEach((m,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=m.name;meals.append(o)});
  el('globalFoodSearch').addEventListener('submit',async event=>{
   event.preventDefault();selected=null;el('globalFoodSelection').hidden=true;
   const q=el('globalFoodQuery').value.trim();
@@ -102,11 +102,11 @@ function mount(){
  });
  el('globalFoodAdd').addEventListener('click',()=>{
   const g=Number(el('globalFoodGrams').value),meal=Number(el('globalFoodMeal').value);
-  if(!selected||!Number.isFinite(g)||g<=0||g>1500||!Number.isInteger(meal)||meal<0||meal>=window.mealPlan.meals.length){
+  if(!selected||!Number.isFinite(g)||g<=0||g>1500||!Number.isInteger(meal)||meal<0||meal>=mealPlan.meals.length){
    el('globalFoodStatus').textContent='اختر طعاماً صالحاً وكمية بين 1 و1500 غرام.';return;}
   const entry={uid:Date.now()+'-'+additions.length,meal,grams:g,food:{...selected}};
   additions.push(entry);
-  if(addTableRow(entry)){window.refreshTotals();el('globalFoodStatus').textContent='تمت إضافة '+selected.name+' إلى '+window.mealPlan.meals[meal].name+'.';}
+  if(addTableRow(entry)){window.refreshTotals();el('globalFoodStatus').textContent='تمت إضافة '+selected.name+' إلى '+mealPlan.meals[meal].name+'.';}
  });
  for(const a of additions)addTableRow(a);
  if(additions.length)window.refreshTotals();

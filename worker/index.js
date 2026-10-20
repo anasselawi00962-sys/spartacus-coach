@@ -85,8 +85,60 @@ async function globalFoodLookup(req,env,url) {
   disclaimer:'Nutrients reflect the source record per 100g; verify label, edible state and serving size. Blank fields are excluded, never estimated.'});
 }
 
+
+/* Normalized global food lookup. No API secrets are exposed to browser clients. */
+const number100=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=1000?v:null;
+const foodName=v=>String(v||'').replace(/<[^>]*>/g,'').trim().slice(0,160);
+async function globalFoodSearch(req,env,url) {
+ const query=(url.searchParams.get('q')||'').trim();
+ if(query.length<2||query.length>90)return json({error:'أدخل اسم طعام بين حرفين و90 حرفاً.'},400);
+ const result=[],errors=[];
+ // Open Food Facts: branded/package foods, numbers declared per 100g.
+ try {
+  const endpoint=new URL('https://world.openfoodfacts.org/cgi/search.pl');
+  endpoint.searchParams.set('search_terms',query);
+  endpoint.searchParams.set('search_simple','1');
+  endpoint.searchParams.set('action','process');
+  endpoint.searchParams.set('json','1');
+  endpoint.searchParams.set('page_size','18');
+  endpoint.searchParams.set('fields','code,product_name,product_name_ar,product_name_en,brands,nutriments');
+  const response=await fetch(endpoint.toString(),{headers:{'user-agent':'SpartacusCoach/0.2 (nutrition lookup; contact: info@spartacusprotein.com)'},signal:AbortSignal.timeout(8500)});
+  if(!response.ok)throw Error('Food data service returned '+response.status);
+  const data=await response.json();
+  for(const p of data.products||[]) {
+   const n=p.nutriments||{};
+   const kcal=number100(n['energy-kcal_100g']);
+   const protein=number100(n.proteins_100g),carbs=number100(n.carbohydrates_100g),fat=number100(n.fat_100g);
+   if([kcal,protein,carbs,fat].some(v=>v===null)||!foodName(p.product_name_ar||p.product_name||p.product_name_en))continue;
+   if(protein>100||carbs>100||fat>100)continue;
+   result.push({id:'off:'+String(p.code||''),name:foodName(p.product_name_ar||p.product_name||p.product_name_en),brand:foodName(p.brands),source:'Open Food Facts',sourceUrl:'https://world.openfoodfacts.org/product/'+encodeURIComponent(String(p.code||'')),per100g:{kcal,protein,carbs,fat},verification:'community_label'});
+  }
+ }catch(e){errors.push('Open Food Facts temporarily unavailable');}
+ // USDA is optional and server-side only. Never use an API key in browser code.
+ if(env.FDC_API_KEY)try {
+  const endpoint='https://api.nal.usda.gov/fdc/v1/foods/search?api_key='+encodeURIComponent(env.FDC_API_KEY);
+  const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query,pageSize:18,dataType:['Foundation','SR Legacy','Branded']}),signal:AbortSignal.timeout(8500)});
+  if(!response.ok)throw Error('USDA service returned '+response.status);
+  const data=await response.json();
+  for(const p of data.foods||[]) {
+   let fields={};
+   for(const n of p.foodNutrients||[]) {
+    if([1008,2047,2048].includes(n.nutrientId)&&fields.kcal===undefined)fields.kcal=number100(n.value);
+    if(n.nutrientId===1003)fields.protein=number100(n.value);
+    if(n.nutrientId===1005)fields.carbs=number100(n.value);
+    if(n.nutrientId===1004)fields.fat=number100(n.value);
+   }
+   if(['kcal','protein','carbs','fat'].some(k=>fields[k]===undefined||fields[k]===null))continue;
+   if(fields.protein>100||fields.carbs>100||fields.fat>100)continue;
+   result.push({id:'usda:'+p.fdcId,name:foodName(p.description),brand:foodName(p.brandOwner),source:'USDA FoodData Central',sourceUrl:'https://fdc.nal.usda.gov/food-details/'+p.fdcId+'/nutrients',per100g:fields,verification:'usda'});
+  }
+ }catch(e){errors.push('USDA temporarily unavailable');}
+ // Never fill missing nutrient fields by guessing. Clients must show provenance.
+ return json({query,items:result.slice(0,30),sources:['Open Food Facts',...(env.FDC_API_KEY?['USDA FoodData Central']:[])],errors,units:'per 100g',note:'Database values may differ from the actual label. Mixed dishes require recipe-specific measurement.'});
+}
+
 export default{async fetch(req,env){const url=new URL(req.url),path=url.pathname;try{
-if(path.startsWith('/api/')){if(!identity(req).id)return json({error:'يلزم تسجيل الدخول.'},401);const isAdmin=admin(req,env);
+if(path.startsWith('/api/')){if(!identity(req).id)return json({error:'يلزم تسجيل الدخول.'},401);const isAdmin=admin(req,env);if(path==='/api/foods/search'&&req.method==='GET')return globalFoodSearch(req,env,url);
 if(path==='/api/foods/search'&&req.method==='GET')return globalFoodLookup(req,env,url);
 if(path==='/api/admin/config'&&req.method==='GET'){if(!isAdmin)return json({error:'هذا القسم للإدارة فقط.'},403);return json({ready:ready(env),keyConfigured:!!env.RUNWAY_API_KEY,storageReady:!!env.BUCKET,generationEnabled:env.RUNWAY_GENERATION_ENABLED==='true',catalog,model:'gen4.5',duration:5,estimatedCredits:60,estimatedUSD:.60,pilotLimit:5});}
 if(path.startsWith('/api/admin/')){if(!isAdmin)return json({error:'هذا القسم للإدارة فقط.'},403);if(!env.BUCKET)return json({error:'التخزين غير متاح.'},503);if(path==='/api/admin/jobs'&&req.method==='GET')return json({jobs:(await listJobs(env.BUCKET)).map(publicJob)});if(path.startsWith('/api/admin/preview/')&&['GET','HEAD'].includes(req.method)){const job=await get(env.BUCKET,'jobs/'+path.split('/').pop()+'.json');return job?.videoKey?streamVideo(req,env,job.videoKey):json({error:'لا يوجد فيديو محفوظ.'},404);}

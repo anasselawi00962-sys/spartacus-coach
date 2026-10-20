@@ -92,9 +92,11 @@ const foodName=v=>String(v||'').replace(/<[^>]*>/g,'').trim().slice(0,160);
 async function globalFoodSearch(req,env,url) {
  const query=(url.searchParams.get('q')||'').trim();
  if(query.length<2||query.length>90)return json({error:'أدخل اسم طعام بين حرفين و90 حرفاً.'},400);
+ const requestedSource=(url.searchParams.get('source')||'all');
+ if(!['all','openfoodfacts','usda'].includes(requestedSource))return json({error:'مصدر غير معروف.'},400);
  const result=[],errors=[];
  // Open Food Facts: branded/package foods, numbers declared per 100g.
- try {
+ if(requestedSource!=='usda')try {
   const endpoint=new URL('https://world.openfoodfacts.org/cgi/search.pl');
   endpoint.searchParams.set('search_terms',query);
   endpoint.searchParams.set('search_simple','1');
@@ -115,7 +117,7 @@ async function globalFoodSearch(req,env,url) {
   }
  }catch(e){errors.push('Open Food Facts temporarily unavailable');}
  // USDA is optional and server-side only. Never use an API key in browser code.
- if(env.FDC_API_KEY)try {
+ if(requestedSource!=='openfoodfacts'&&env.FDC_API_KEY)try {
   const endpoint='https://api.nal.usda.gov/fdc/v1/foods/search?api_key='+encodeURIComponent(env.FDC_API_KEY);
   const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query,pageSize:18,dataType:['Foundation','SR Legacy','Branded']}),signal:AbortSignal.timeout(8500)});
   if(!response.ok)throw Error('USDA service returned '+response.status);
@@ -133,6 +135,7 @@ async function globalFoodSearch(req,env,url) {
    result.push({id:'usda:'+p.fdcId,name:foodName(p.description),brand:foodName(p.brandOwner),source:'USDA FoodData Central',sourceUrl:'https://fdc.nal.usda.gov/food-details/'+p.fdcId+'/nutrients',per100g:fields,verification:'usda'});
   }
  }catch(e){errors.push('USDA temporarily unavailable');}
+ if(requestedSource==='usda'&&!env.FDC_API_KEY)errors.push('USDA not configured by site administrator');
  // Never fill missing nutrient fields by guessing. Clients must show provenance.
  return json({query,items:result.slice(0,30),sources:['Open Food Facts',...(env.FDC_API_KEY?['USDA FoodData Central']:[])],errors,units:'per 100g',note:'Database values may differ from the actual label. Mixed dishes require recipe-specific measurement.'});
 }

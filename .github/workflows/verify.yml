@@ -1,0 +1,20 @@
+name: Spartacus Coach checks
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Worker artifact
+        run: node scripts/build-worker.mjs
+      - name: Validate artifact
+        run: node scripts/validate-artifact.mjs
+      - name: Run smoke tests
+        run: node scripts/test-worker.mjs

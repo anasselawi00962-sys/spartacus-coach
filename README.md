@@ -23,3 +23,11 @@ An R2 conditional lock and request IDs prevent duplicate paid submissions. A sub
 ## Verification limits
 Tests use mock provider responses and mock R2, including admin checks, Origin checks, disabled generation, duplicate prevention and review gating. No live Runway generation has been tested without a configured key and credits. Nutrition calculations are deterministic USDA-based estimates, not a complete dietetic service. Personal nutrition and training records are session-only; R2 persistence currently covers video jobs/assets only.
 The private access boundary must be preserved. Before expanding the audience, retest admin restrictions and serving permissions. R2 persistence is not an independent backup; exports/off-site backups remain to be configured.
+
+## Global food search (October 2026 pilot)
+
+The Nutrition meal planner now includes a food-search panel powered by a server-side `GET /api/foods/search?q=...` endpoint. Search requires authenticated app access. Open Food Facts is queried live for packaged foods; entries missing energy, protein, carbohydrate or fat per 100 g are excluded rather than guessed. Users choose a result, enter grams and select breakfast/lunch/snack/dinner; the current meal and day totals recalculate. Added foods are session-only and are not yet persisted to a user account.
+
+For USDA FoodData Central, supply `USDA_FDC_API_KEY` as a **server-side hosted secret** and redeploy; never embed an API key in the frontend. Until configured, USDA returns no entries. Sources have different coverage, and homemade Jordanian/Arab dishes and recipe builders are future work; no claim of universal food coverage or clinical nutrition accuracy should be made. Verify source label, per-100-g state and actual edible portion.
+
+**Deployment:** committing to GitHub does not by itself certify deployment of a hosted Sites worker; build/validate/test and publish the changed source through the existing Sites hosting workflow. Test the public search with a signed-in user and confirm `/api/foods/search` and `/food-catalog.js` are served. Never publish food diary data to analytics; the current food search query is sent to the nutrition-data provider but not saved in the app database.

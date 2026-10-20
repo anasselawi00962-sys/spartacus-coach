@@ -1,1 +1,9 @@
-{"name":"spartacus-coach","private":true,"type":"module","scripts":{"build":"node scripts/build-worker.mjs","test":"node scripts/test-worker.mjs"}}
+{
+  "name": "spartacus-coach",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-worker.mjs",
+    "test": "node scripts/test-worker.mjs && node scripts/test-food-search.mjs"
+  }
+}

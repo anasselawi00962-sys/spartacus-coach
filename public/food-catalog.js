@@ -75,6 +75,14 @@ function mount(){
  '<button id="globalFoodAdd" type="button">إضافة إلى جدول اليوم</button></div>'+
  '<p class="muted">البيانات من مساهمات عامة أو قواعد مرجعية: تحقق من الملصق، حالة الطعام مطبوخ أو نيّئ، والكمية. الإضافات الحالية محفوظة داخل هذه الجلسة فقط.</p>';
  output.appendChild(panel);
+ const custom=document.createElement('details');custom.innerHTML='<summary>ما لقيت طعامك؟ أضفه من الملصق الغذائي (قيم يدوية غير متحقّق منها)</summary><label>اسم الطعام<input id="foodCustomName" maxlength="100"></label><div class="row"><label>سعرات لكل 100 غرام<input id="foodCustomKcal" type="number" min="0" max="900"></label><label>بروتين لكل 100 غرام<input id="foodCustomProtein" type="number" min="0" max="100"></label><label>كربوهيدرات لكل 100 غرام<input id="foodCustomCarbs" type="number" min="0" max="100"></label><label>دهون لكل 100 غرام<input id="foodCustomFat" type="number" min="0" max="100"></label></div><button id="foodCustomAdd" type="button">إضافة قيم يدوية للجدول</button><p class="muted">الأرقام مصدرها المستخدم، وليست قيمة موثقة من قاعدة بيانات أو تشخيصاً غذائياً.</p>';panel.append(custom);
+ el('foodCustomAdd').onclick=()=>{
+  const name=el('foodCustomName').value.trim(),ids=['foodCustomKcal','foodCustomProtein','foodCustomCarbs','foodCustomFat'];
+  if(name.length<2||ids.some(id=>el(id).value===''||!el(id).checkValidity())){el('globalFoodStatus').textContent='أدخل الاسم وجميع القيم من ملصق غذائي لكل 100 غرام.';return;}
+  const v=ids.map(id=>Number(el(id).value));if(v[1]+v[2]+v[3]>110){el('globalFoodStatus').textContent='القيم تتجاوز المعقول لكل 100 غرام. راجع الأرقام.';return;}
+  selected={id:'manual-'+Date.now(),name,brand:'',source:'User-entered (unverified)',state:'manual label',kcal:v[0],p:v[1],c:v[2],f:v[3]};
+  el('globalFoodSelection').hidden=false;el('globalFoodSelectedName').textContent=name+' — قيم يدوية غير موثقة';
+ };
  const meals=el('globalFoodMeal');mealPlan.meals.forEach((m,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=m.name;meals.append(o)});
  el('globalFoodSearch').addEventListener('submit',async event=>{
   event.preventDefault();selected=null;el('globalFoodSelection').hidden=true;
@@ -87,9 +95,9 @@ function mount(){
    const response=await fetch('/api/foods/search?q='+encodeURIComponent(q)+'&source='+encodeURIComponent(src),{credentials:'same-origin'});
    if(!response.ok){status.textContent=response.status===401?'يلزم تسجيل الدخول لاستخدام البحث العالمي.':'تعذّر الاتصال بقاعدة الطعام ('+response.status+').';return;}
    const data=await response.json();
-   const foods=(data.foods||[]).filter(f=>['kcal','p','c','f'].every(k=>typeof f[k]==='number'&&Number.isFinite(f[k])&&f[k]>=0));
+   const foods=(data.items||[]).map(x=>({id:x.id,name:x.name,brand:x.brand||'',source:x.source,sourceUrl:x.sourceUrl||'',state:x.verification==='usda'?'USDA reference':'Community nutrition label',kcal:x.per100g?.kcal,p:x.per100g?.protein,c:x.per100g?.carbs,f:x.per100g?.fat})).filter(f=>['kcal','p','c','f'].every(k=>typeof f[k]==='number'&&Number.isFinite(f[k])&&f[k]>=0));
    status.textContent=foods.length?'اختر الطعام المناسب من النتائج ('+foods.length+'). راجع العلامة التجارية وحالة التحضير.':'لا توجد نتائج بقيم غذائية مكتملة. جرّب الاسم الإنجليزي أو منتجاً مختلفاً.';
-   if(data.notes?.length)status.textContent+=' بعض المصادر غير متاحة حالياً.';
+   if(data.errors?.length)status.textContent+=' بعض المصادر غير متاحة حالياً.';
    foods.forEach(f=>{
     const btn=document.createElement('button');btn.type='button';
     btn.style.cssText='display:block;text-align:start;width:100%;background:#fff;color:#222;border:1px solid #ddd;margin:6px 0;padding:10px;';

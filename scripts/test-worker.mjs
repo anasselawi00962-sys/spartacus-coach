@@ -6,6 +6,32 @@ const req=(path,body,extra={})=>new Request('https://coach.example.test'+path,{m
 assert.equal((await worker.fetch(new Request('https://coach.example.test/api/admin/config'),env)).status,401);
 assert.equal((await worker.fetch(req('/api/admin/config',null,{'oai-authenticated-user-email':'viewer@example.test'}),env)).status,403);
 const config=await(await worker.fetch(req('/api/admin/config'),env)).json();assert.equal(config.ready,false);assert.equal(config.catalog.length,5);
+// Food search: authenticated, validates search term, excludes incomplete entries,
+// and never infers unknown nutrients.
+assert.equal((await worker.fetch(req('/api/foods/search?q=x'),env)).status,400);
+assert.equal((await worker.fetch(new Request('https://coach.example.test/api/foods/search?q=rice'),env)).status,401);
+const previousFetch=globalThis.fetch;
+let foodRequests=0;
+globalThis.fetch=async(url)=>{
+ assert(String(url).startsWith('https://world.openfoodfacts.org/cgi/search.pl?'));
+ foodRequests++;
+ return new Response(JSON.stringify({products:[
+  {code:'1234567890123',product_name:'Verified Yogurt',brands:'Example',nutriments:{'energy-kcal_100g':60,proteins_100g:4,carbohydrates_100g:6,fat_100g:2}},
+  {code:'000',product_name:'Incomplete listing',nutriments:{'energy-kcal_100g':40,proteins_100g:2}}
+ ]}),{status:200,headers:{'content-type':'application/json'}});
+};
+try {
+ const foodResult=await worker.fetch(req('/api/foods/search?q=yogurt&source=openfoodfacts'),env);
+ assert.equal(foodResult.status,200);
+ const payload=await foodResult.json();
+ assert.equal(foodRequests,1);
+ assert.equal(payload.foods.length,1);
+ assert.equal(payload.foods[0].name,'Verified Yogurt');
+ assert.equal(payload.foods[0].kcal,60);
+ assert.equal(payload.foods[0].source,'Open Food Facts');
+ assert.equal(payload.foods[0].unit,'100g');
+} finally {globalThis.fetch=previousFetch;}
+
 const body={requestId:'12345678-1234-1234-1234-123456789012',exerciseId:'chair-squat',acceptCost:true};
 assert.equal((await worker.fetch(req('/api/admin/generate',body,{origin:'https://evil.example.test'}),env)).status,403);
 assert.equal((await worker.fetch(req('/api/admin/generate',body),env)).status,409);

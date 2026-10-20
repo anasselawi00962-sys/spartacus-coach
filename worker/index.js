@@ -29,8 +29,65 @@ const video=await fetch(uri,{redirect:'error',signal:AbortSignal.timeout(60000)}
 async function approve(req,env,data){const key='jobs/'+data.requestId+'.json';const job=await get(env.BUCKET,key);if(!job||!job.videoKey||job.status!=='REVIEW_REQUIRED')return json({error:'الفيديو غير جاهز للاعتماد.'},409);if(data.reviewConfirmed!==true||typeof data.reviewer!=='string'||data.reviewer.trim().length<2||data.reviewer.length>80)return json({error:'يلزم اسم المراجع وتأكيد مراجعة صحة الحركة.'},400);job.status='APPROVED';job.reviewer=data.reviewer.trim();job.reviewedAt=new Date().toISOString();await put(env.BUCKET,key,job);await put(env.BUCKET,'approved/'+job.exerciseId+'.json',{videoKey:job.videoKey,requestId:job.requestId});return json({job:publicJob(job)});}
 async function streamVideo(req,env,key){const range=req.headers.get('range');let rangeOptions;if(range){const m=/^bytes=(\d+)-(\d*)$/.exec(range);if(!m)return new Response(null,{status:416});const offset=Number(m[1]);rangeOptions={offset,...(m[2]?{length:Number(m[2])-offset+1}:{})};if(rangeOptions.length!==undefined&&rangeOptions.length<=0)return new Response(null,{status:416});}
 const item=await env.BUCKET.get(key,rangeOptions?{range:rangeOptions}:undefined);if(!item)return new Response('Not found',{status:404});const h=new Headers({...headers,'content-type':'video/mp4','accept-ranges':'bytes'});let status=200;if(item.range){const offset=item.range.offset||0,length=item.range.length||item.size-offset;h.set('content-range',`bytes ${offset}-${offset+length-1}/${item.size}`);h.set('content-length',String(length));status=206;}else h.set('content-length',String(item.size));return new Response(req.method==='HEAD'?null:item.body,{status,headers:h});}
+
+/* Search verified per-100g nutrient records; do not fill missing data by guess. */
+const numeric=(v,max=900)=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=max?v:null;
+function validatedFood(f) {
+ const kcal=numeric(f.kcal),p=numeric(f.p,100),c=numeric(f.c,100),fat=numeric(f.f,100);
+ if (kcal===null||p===null||c===null||fat===null||!f.name||typeof f.name!=='string') return null;
+ if (p+c+fat>115) return null;
+ return {id:String(f.id||'').slice(0,100),name:f.name.slice(0,160),
+  brand:String(f.brand||'').slice(0,120),state:String(f.state||'').slice(0,160),
+  source:f.source,sourceUrl:f.sourceUrl,kcal,p,c,f:fat,unit:'100g'};
+}
+async function searchWorldFoods(q) {
+ const query=new URLSearchParams({search_terms:q,search_simple:'1',action:'process',json:'1',page_size:'16',fields:'code,product_name,product_name_en,brands,nutriments'});
+ const response=await fetch('https://world.openfoodfacts.org/cgi/search.pl?'+query,{
+  headers:{'User-Agent':'SpartacusCoach/1.0 (info@spartacusprotein.com)','Accept':'application/json'},
+  signal:AbortSignal.timeout(12000)});
+ if(!response.ok)throw Error('Open Food Facts unavailable');
+ const raw=await response.json();
+ return (raw.products||[]).map(x=>{
+  const n=x.nutriments||{};
+  return validatedFood({id:'off:'+x.code,name:x.product_name||x.product_name_en,
+    brand:x.brands||'',state:'Packaged product, as sold',
+    source:'Open Food Facts',sourceUrl:'https://world.openfoodfacts.org/product/'+encodeURIComponent(x.code||''),
+    kcal:n['energy-kcal_100g'],p:n.proteins_100g,c:n.carbohydrates_100g,f:n.fat_100g});
+ }).filter(Boolean).slice(0,12);
+}
+async function searchUsdaFoods(q,env) {
+ if(!env.USDA_FDC_API_KEY)return [];
+ const response=await fetch('https://api.nal.usda.gov/fdc/v1/foods/search?api_key='+encodeURIComponent(env.USDA_FDC_API_KEY),{
+  method:'POST',headers:{'content-type':'application/json','accept':'application/json'},
+  body:JSON.stringify({query:q,pageSize:12}),
+  signal:AbortSignal.timeout(12000)});
+ if(!response.ok)throw Error('USDA unavailable');
+ const raw=await response.json();
+ return (raw.foods||[]).map(x=>{
+  const find=(nums)=>{const n=(x.foodNutrients||[]).find(y=>nums.includes(String(y.nutrientNumber||y.number||'')));return n?.value;};
+  return validatedFood({id:'usda:'+x.fdcId,name:x.description,brand:x.brandOwner||'',
+    state:'Check raw/cooked description and per-100g values',
+    source:'USDA FoodData Central',sourceUrl:'https://fdc.nal.usda.gov/food-details/'+x.fdcId+'/nutrients',
+    kcal:find(['208']),p:find(['203']),c:find(['205']),f:find(['204'])});
+ }).filter(Boolean).slice(0,12);
+}
+async function globalFoodLookup(req,env,url) {
+ const q=(url.searchParams.get('q')||'').trim();
+ if(q.length<2||q.length>90)return json({error:'أدخل اسم طعام بين حرفين و90 حرفاً.'},400);
+ const provider=url.searchParams.get('source')||'all';
+ if(!['all','openfoodfacts','usda'].includes(provider))return json({error:'مصدر غير صالح.'},400);
+ let foods=[],notes=[];
+ const sources=provider==='all'?['openfoodfacts','usda']:[provider];
+ const results=await Promise.allSettled(sources.map(x=>x==='usda'?searchUsdaFoods(q,env):searchWorldFoods(q)));
+ results.forEach((result,i)=>{if(result.status==='fulfilled')foods.push(...result.value);
+  else notes.push(sources[i]+': currently unavailable');});
+ return json({foods:foods.slice(0,24),query:q,sources,notes,
+  disclaimer:'Nutrients reflect the source record per 100g; verify label, edible state and serving size. Blank fields are excluded, never estimated.'});
+}
+
 export default{async fetch(req,env){const url=new URL(req.url),path=url.pathname;try{
 if(path.startsWith('/api/')){if(!identity(req).id)return json({error:'يلزم تسجيل الدخول.'},401);const isAdmin=admin(req,env);
+if(path==='/api/foods/search'&&req.method==='GET')return globalFoodLookup(req,env,url);
 if(path==='/api/admin/config'&&req.method==='GET'){if(!isAdmin)return json({error:'هذا القسم للإدارة فقط.'},403);return json({ready:ready(env),keyConfigured:!!env.RUNWAY_API_KEY,storageReady:!!env.BUCKET,generationEnabled:env.RUNWAY_GENERATION_ENABLED==='true',catalog,model:'gen4.5',duration:5,estimatedCredits:60,estimatedUSD:.60,pilotLimit:5});}
 if(path.startsWith('/api/admin/')){if(!isAdmin)return json({error:'هذا القسم للإدارة فقط.'},403);if(!env.BUCKET)return json({error:'التخزين غير متاح.'},503);if(path==='/api/admin/jobs'&&req.method==='GET')return json({jobs:(await listJobs(env.BUCKET)).map(publicJob)});if(path.startsWith('/api/admin/preview/')&&['GET','HEAD'].includes(req.method)){const job=await get(env.BUCKET,'jobs/'+path.split('/').pop()+'.json');return job?.videoKey?streamVideo(req,env,job.videoKey):json({error:'لا يوجد فيديو محفوظ.'},404);}
 if(req.method!=='POST')return json({error:'طريقة غير مسموحة.'},405);if(req.headers.get('origin')!==url.origin)return json({error:'مصدر الطلب غير مسموح.'},403);if(path==='/api/admin/import'){const exerciseId=req.headers.get('x-exercise-id');if(!catalog.some(e=>e.id===exerciseId)||!req.headers.get('content-type')?.includes('video/mp4'))return json({error:'اختر تمريناً وملف MP4 صالحاً.'},400);let size=0;const stream=req.body?.pipeThrough(new TransformStream({transform(chunk,c){size+=chunk.byteLength;if(size>25*1024*1024)throw Error('Too large');c.enqueue(chunk);}}));if(!stream)return json({error:'ملف فارغ.'},400);const bytes=await new Response(stream).arrayBuffer();if(bytes.byteLength<12||String.fromCharCode(...new Uint8Array(bytes).slice(4,8))!=='ftyp')return json({error:'الملف ليس MP4 صالحاً.'},400);const requestId=crypto.randomUUID();const job={requestId,exerciseId,status:'REVIEW_REQUIRED',createdAt:new Date().toISOString(),videoKey:'videos/'+requestId+'.mp4',message:'فيديو تجريبي مستورد؛ ينتظر مراجعة صحة الحركة.'};await env.BUCKET.put(job.videoKey,bytes,{httpMetadata:{contentType:'video/mp4'}});await put(env.BUCKET,'jobs/'+requestId+'.json',job);return json({job:publicJob(job)});}

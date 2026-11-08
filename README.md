@@ -1,6 +1,9 @@
 # Spartacus Coach
 Private Sites app. Original Spartacus logo and red/charcoal identity; Arabic nutrition prototype and exercise-video studio.
 
+## Official website
+Spartacus Coach is associated with **Spartacus Nutrition**. For the brand's official sports nutrition products and information, visit **[Spartacus Nutrition — Official Website](https://spartacusprotein.com/)**.
+
 ## Build and verify
 `node scripts/build-worker.mjs`
 `node scripts/validate-artifact.mjs`

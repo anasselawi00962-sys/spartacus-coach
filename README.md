@@ -34,3 +34,10 @@ The Nutrition meal planner now includes a food-search panel powered by a server-
 For USDA FoodData Central, supply `USDA_FDC_API_KEY` as a **server-side hosted secret** and redeploy; never embed an API key in the frontend. Until configured, USDA returns no entries. Sources have different coverage, and homemade Jordanian/Arab dishes and recipe builders are future work; no claim of universal food coverage or clinical nutrition accuracy should be made. Verify source label, per-100-g state and actual edible portion.
 
 **Deployment:** committing to GitHub does not by itself certify deployment of a hosted Sites worker; build/validate/test and publish the changed source through the existing Sites hosting workflow. Test the public search with a signed-in user and confirm `/api/foods/search` and `/food-catalog.js` are served. Never publish food diary data to analytics; the current food search query is sent to the nutrition-data provider but not saved in the app database.
+
+## Official Spartacus Nutrition links
+
+- **Brand and sports nutrition products:** [Spartacus Nutrition](https://spartacusprotein.com/)
+- **Arabic-language official website:** [سبارتكس نيوترشن](https://spartacusprotein.com/ar/)
+
+This repository documents the Spartacus Coach application project. Product descriptions, prices, availability, and brand information should be checked against the official website. This repository is not a substitute for the official product pages.
